@@ -1,0 +1,47 @@
+# Pre-commit hooks for contributors to this repo (the DevEx Framework itself).
+#
+# Setup:
+#   uvx pre-commit install
+#
+# Run on demand:
+#   uvx pre-commit run --all-files
+#
+# Note: this is separate from the pre-push hook that `devex init` installs into
+# *consumer* projects (see tools/devex-cli/src/devex/hooks/installer.py). That one
+# protects projects built on the Golden Path; this one protects this repo.
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=1000"]
+      - id: check-case-conflict
+      - id: mixed-line-ending
+
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format (devex-cli)
+        entry: bash -c 'cd tools/devex-cli && uv run ruff format --check src/ tests/'
+        language: system
+        files: ^tools/devex-cli/.*\.py$
+        pass_filenames: false
+
+      - id: ruff-check
+        name: ruff check (devex-cli)
+        entry: bash -c 'cd tools/devex-cli && uv run ruff check src/ tests/'
+        language: system
+        files: ^tools/devex-cli/.*\.py$
+        pass_filenames: false
+
+      - id: eslint-workflow-framework
+        name: eslint (workflow-framework)
+        entry: bash -c 'cd packages/workflow-framework && pnpm lint'
+        language: system
+        files: ^packages/workflow-framework/.*\.ts$
+        pass_filenames: false

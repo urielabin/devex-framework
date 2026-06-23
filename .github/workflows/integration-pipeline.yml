@@ -1,0 +1,72 @@
+name: Golden Path Integration Pipeline
+
+# Triggered only on merge to main (not on PRs — that's ci.yml's job).
+# Runs the full CLI + Framework suites against live local dependencies
+# (Docker Compose's DynamoDB Local) instead of mocks, then emits a DORA
+# deployment event in the same shape teams get from
+# packages/workflow-framework/src/dora/metrics.ts, proving the telemetry
+# is consistent end-to-end on a real merge — not just documented.
+on:
+  push:
+    branches: [main]
+
+jobs:
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Start local dependency stack
+        run: docker compose up -d --wait dynamodb-local table-init
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Run Python CLI tests against local stack
+        working-directory: tools/devex-cli
+        run: uv sync --all-extras && uv run pytest tests/ -v --tb=short
+        env:
+          AWS_DEFAULT_REGION: us-east-1
+          DYNAMODB_ENDPOINT: http://localhost:8000
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Run TypeScript Framework tests + build
+        working-directory: packages/workflow-framework
+        run: pnpm install && pnpm test && pnpm build
+        env:
+          AWS_DEFAULT_REGION: us-east-1
+          DYNAMODB_ENDPOINT: http://localhost:8000
+
+      - name: Emit DORA deployment event
+        if: success()
+        run: |
+          echo "{\"namespace\":\"DevEx/DORA\",\"event\":\"DeploymentFrequency\",\"teamName\":\"platform\",\"workIdPrefix\":\"PLAT\",\"commitSha\":\"${{ github.sha }}\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" >> .dora-events.jsonl
+
+      - name: Upload DORA events
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dora-events-integration
+          path: .dora-events.jsonl
+
+      - name: Stop local dependency stack
+        if: always()
+        run: docker compose down
